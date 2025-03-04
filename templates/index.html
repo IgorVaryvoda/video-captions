@@ -1,0 +1,125 @@
+{% extends 'layout.html' %}
+
+{% block title %}Home - Video Captions App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h2 class="mb-0">Generate Video Captions with Whisper</h2>
+            </div>
+            <div class="card-body">
+                <p class="lead">Upload a video file to generate captions using Whisper's self-hosted AI model.</p>
+
+                <form id="upload-form" enctype="multipart/form-data" class="mb-4">
+                    <div class="mb-3">
+                        <label for="video" class="form-label">Select a video file</label>
+                        <input type="file" class="form-control" id="video" name="video" accept="video/mp4,video/avi,video/mov,video/mkv,video/webm" required>
+                        <div class="form-text">Supported formats: MP4, AVI, MOV, MKV, WEBM (max 500MB)</div>
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary" id="upload-btn">
+                            <span id="btn-text">Generate Captions</span>
+                            <span id="btn-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                        </button>
+                    </div>
+                </form>
+
+                <div id="alert-container"></div>
+
+                <div id="result-container" class="d-none">
+                    <h4 class="mb-3">Transcription Complete!</h4>
+                    <div class="d-grid gap-2">
+                        <a id="player-link" href="#" class="btn btn-success">View Video with Captions</a>
+                        <a id="vtt-link" href="#" class="btn btn-secondary" download>Download VTT File</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow mt-4">
+            <div class="card-header bg-info text-white">
+                <h3 class="mb-0">How It Works</h3>
+            </div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    <li>Upload your video file using the form above</li>
+                    <li>Our application processes the video using Whisper AI</li>
+                    <li>A VTT caption file is automatically generated</li>
+                    <li>View the video with captions in our video.js player</li>
+                    <li>Download the VTT file for use with other players</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const uploadForm = document.getElementById('upload-form');
+        const uploadBtn = document.getElementById('upload-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnSpinner = document.getElementById('btn-spinner');
+        const alertContainer = document.getElementById('alert-container');
+        const resultContainer = document.getElementById('result-container');
+        const playerLink = document.getElementById('player-link');
+        const vttLink = document.getElementById('vtt-link');
+
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Show loading state
+            btnText.textContent = 'Processing...';
+            btnSpinner.classList.remove('d-none');
+            uploadBtn.disabled = true;
+            alertContainer.innerHTML = '';
+            resultContainer.classList.add('d-none');
+
+            const formData = new FormData(uploadForm);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Show success
+                playerLink.href = `/player/${data.filename}`;
+                vttLink.href = data.vtt_url;
+                resultContainer.classList.remove('d-none');
+
+                // Show success alert
+                alertContainer.innerHTML = `
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <strong>Success!</strong> Your video has been transcribed.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                `;
+            })
+            .catch(error => {
+                // Show error
+                alertContainer.innerHTML = `
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <strong>Error!</strong> ${error.message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                `;
+            })
+            .finally(() => {
+                // Reset button state
+                btnText.textContent = 'Generate Captions';
+                btnSpinner.classList.add('d-none');
+                uploadBtn.disabled = false;
+            });
+        });
+    });
+</script>
+{% endblock %}

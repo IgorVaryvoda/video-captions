@@ -1,0 +1,206 @@
+{% extends 'layout.html' %}
+
+{% block title %}Player - {{ filename }} - Video Captions App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="card shadow">
+            <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white">
+                <h2 class="mb-0">{{ filename }}</h2>
+                <a href="/" class="btn btn-outline-light btn-sm">Back to Upload</a>
+            </div>
+            <div class="card-body">
+                <div class="player-container mb-4">
+                    <video id="video-player" class="video-js vjs-default-skin vjs-big-play-centered" controls preload="auto" width="100%" height="450">
+                        <source src="{{ video_url }}" type="video/mp4">
+                        <track kind="captions" src="{{ vtt_url }}" label="English" default>
+                        <p class="vjs-no-js">
+                            To view this video please enable JavaScript, and consider upgrading to a
+                            web browser that <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
+                        </p>
+                    </video>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <a href="{{ vtt_url }}" class="btn btn-primary" download>Download VTT</a>
+                    </div>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-secondary" id="caption-toggle">Toggle Captions</button>
+                        <button type="button" class="btn btn-outline-secondary" id="fullscreen-btn">Fullscreen</button>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h4>Player Controls</h4>
+                    <ul>
+                        <li><strong>Space</strong> - Play/Pause</li>
+                        <li><strong>M</strong> - Mute/Unmute</li>
+                        <li><strong>F</strong> - Fullscreen</li>
+                        <li><strong>C</strong> - Toggle Captions</li>
+                        <li><strong>Left/Right</strong> - Seek backward/forward</li>
+                        <li><strong>Up/Down</strong> - Volume up/down</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow mt-4">
+            <div class="card-header bg-info text-white">
+                <h3 class="mb-0">Transcript</h3>
+            </div>
+            <div class="card-body">
+                <div id="transcript-container" class="transcript-container">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading transcript...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize video.js player
+        const player = videojs('video-player', {
+            controls: true,
+            autoplay: false,
+            preload: 'auto',
+            fluid: true,
+            playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+            controlBar: {
+                children: [
+                    'playToggle',
+                    'volumePanel',
+                    'currentTimeDisplay',
+                    'timeDivider',
+                    'durationDisplay',
+                    'progressControl',
+                    'captionsButton',
+                    'playbackRateMenuButton',
+                    'fullscreenToggle'
+                ]
+            }
+        });
+
+        // Button handlers
+        document.getElementById('caption-toggle').addEventListener('click', function() {
+            const tracks = player.textTracks();
+            for (let i = 0; i < tracks.length; i++) {
+                if (tracks[i].kind === 'captions' || tracks[i].kind === 'subtitles') {
+                    tracks[i].mode = tracks[i].mode === 'showing' ? 'hidden' : 'showing';
+                }
+            }
+        });
+
+        document.getElementById('fullscreen-btn').addEventListener('click', function() {
+            if (player.isFullscreen()) {
+                player.exitFullscreen();
+            } else {
+                player.requestFullscreen();
+            }
+        });
+
+        // Load and display transcript
+        fetch('{{ vtt_url }}')
+            .then(response => response.text())
+            .then(vttContent => {
+                const container = document.getElementById('transcript-container');
+
+                // Parse VTT content
+                const lines = vttContent.split('\n');
+                let transcript = '';
+                let captionText = '';
+                let startTime = '';
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+
+                    // Skip WEBVTT header and empty lines
+                    if (line === 'WEBVTT' || line === '') {
+                        continue;
+                    }
+
+                    // Time stamps
+                    if (line.includes('-->')) {
+                        startTime = line.split('-->')[0].trim();
+                        continue;
+                    }
+
+                    // Caption text
+                    if (line && !line.includes('-->') && startTime) {
+                        captionText = line;
+
+                        // Add to transcript
+                        transcript += `<div class="transcript-line" data-time="${startTime}">
+                            <span class="transcript-time">${startTime}</span>
+                            <span class="transcript-text">${captionText}</span>
+                        </div>`;
+
+                        startTime = '';
+                    }
+                }
+
+                container.innerHTML = transcript;
+
+                // Add click handler to transcript lines
+                const transcriptLines = document.querySelectorAll('.transcript-line');
+                transcriptLines.forEach(line => {
+                    line.addEventListener('click', function() {
+                        const timeStr = this.getAttribute('data-time');
+                        const timeParts = timeStr.split(':');
+                        const hours = parseInt(timeParts[0]);
+                        const minutes = parseInt(timeParts[1]);
+                        const seconds = parseFloat(timeParts[2].replace(',', '.'));
+
+                        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+                        player.currentTime(totalSeconds);
+                        player.play();
+                    });
+                });
+            })
+            .catch(error => {
+                document.getElementById('transcript-container').innerHTML =
+                    `<div class="alert alert-danger">Error loading transcript: ${error.message}</div>`;
+            });
+    });
+</script>
+{% endblock %}
+
+{% block head %}
+<style>
+    .transcript-container {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .transcript-line {
+        padding: 8px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+    }
+
+    .transcript-line:hover {
+        background-color: #f8f9fa;
+    }
+
+    .transcript-time {
+        color: #6c757d;
+        font-size: 0.85rem;
+        margin-right: 10px;
+        display: inline-block;
+        width: 80px;
+    }
+
+    .transcript-text {
+        font-size: 1rem;
+    }
+</style>
+{% endblock %}
