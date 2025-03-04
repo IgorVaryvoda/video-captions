@@ -1,5 +1,5 @@
 app = "video-captions"
-primary_region = "ord"  # Chicago - change this to a region closer to you
+primary_region = "otp"  # Bucharest, Romania
 
 [build]
   dockerfile = "Dockerfile"
