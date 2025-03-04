@@ -30,7 +30,7 @@
                 <div id="alert-container"></div>
 
                 <div id="result-container" class="d-none">
-                    <h4 class="mb-3">Transcription Complete!</h4>
+                    <h4 class="mb-3" id="result-heading">Transcription Complete!</h4>
                     <div class="d-grid gap-2">
                         <a id="player-link" href="#" class="btn btn-success">View Video with Captions</a>
                         <a id="vtt-link" href="#" class="btn btn-secondary" download>Download VTT File</a>
@@ -66,6 +66,7 @@
         const btnSpinner = document.getElementById('btn-spinner');
         const alertContainer = document.getElementById('alert-container');
         const resultContainer = document.getElementById('result-container');
+        const resultHeading = document.getElementById('result-heading');
         const playerLink = document.getElementById('player-link');
         const vttLink = document.getElementById('vtt-link');
 
@@ -85,24 +86,74 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
+            .then(response => {
+                // Get both the response status and parse the JSON
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    return response.json().then(data => {
+                        return {
+                            status: response.status,
+                            body: data
+                        };
+                    });
+                } else {
+                    throw new Error("Unexpected response format");
                 }
+            })
+            .then(result => {
+                const data = result.body;
 
-                // Show success
-                playerLink.href = `/player/${data.filename}`;
-                vttLink.href = data.vtt_url;
-                resultContainer.classList.remove('d-none');
+                // Check for various response types
+                if (data.error) {
+                    // Show the suggestion if available
+                    const suggestion = data.suggestion ? `<br>${data.suggestion}` : '';
 
-                // Show success alert
-                alertContainer.innerHTML = `
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <strong>Success!</strong> Your video has been transcribed.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                `;
+                    if (data.video_url && data.filename) {
+                        // If we have a video URL, we can still show the player link
+                        playerLink.href = `/player/${data.filename}`;
+                        resultContainer.classList.remove('d-none');
+                        resultHeading.textContent = "Video Available (No Audio)";
+
+                        // Show warning alert
+                        alertContainer.innerHTML = `
+                            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                                <strong>Warning:</strong> ${data.error}${suggestion}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        `;
+                    } else {
+                        // Regular error
+                        throw new Error(`${data.error}${suggestion}`);
+                    }
+                } else if (data.warning) {
+                    // Warning but successful operation
+                    playerLink.href = `/player/${data.filename}`;
+                    vttLink.href = data.vtt_url;
+                    resultContainer.classList.remove('d-none');
+                    resultHeading.textContent = "Video Processed (No Audio)";
+
+                    // Show warning alert
+                    alertContainer.innerHTML = `
+                        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                            <strong>Notice:</strong> ${data.warning}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    `;
+                } else {
+                    // Standard success
+                    playerLink.href = `/player/${data.filename}`;
+                    vttLink.href = data.vtt_url;
+                    resultContainer.classList.remove('d-none');
+                    resultHeading.textContent = "Transcription Complete!";
+
+                    // Show success alert
+                    alertContainer.innerHTML = `
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <strong>Success!</strong> Your video has been transcribed.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    `;
+                }
             })
             .catch(error => {
                 // Show error

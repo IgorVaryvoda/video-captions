@@ -1,23 +1,24 @@
 # Video Captions App
 
-A simple application that uses self-hosted Whisper to transcribe videos and showcase them using video.js with captions.
+A simple application that uses OpenAI Whisper API to transcribe videos and showcase them using video.js with captions.
 
 ## Features
 
 - Upload videos for transcription
-- Automatic caption generation using self-hosted Whisper
+- Automatic caption generation using OpenAI Whisper API
 - Demo page with video.js player to showcase videos with captions
 - VTT caption format support
 
 ## Prerequisites
 
 - Python 3.9+ installed
-- FFmpeg installed (required for Whisper)
+- FFmpeg installed (required for audio extraction)
   - On Ubuntu/Debian: `sudo apt-get install ffmpeg`
   - On macOS: `brew install ffmpeg`
   - On Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
 
-## Setup with UV (Recommended)
+## Local Setup with UV (Recommended)
 
 1. Clone the repository
 2. Install UV if not already installed:
@@ -33,7 +34,7 @@ A simple application that uses self-hosted Whisper to transcribe videos and show
 4. Copy `.env.example` to `.env`:
    ```
    cp .env.example .env
-   # Edit .env if you want to change the Whisper model size
+   # Edit .env to add your OpenAI API key
    ```
 5. Run the application:
    ```
@@ -52,30 +53,57 @@ A simple application that uses self-hosted Whisper to transcribe videos and show
    ```
 3. Follow steps 4-6 from the UV setup above.
 
-## Whisper Models
+## Deployment to Fly.io
 
-The application uses the self-hosted version of Whisper. You can choose different model sizes in the `.env` file:
+This app is configured for easy deployment to Fly.io using their free tier:
 
-- `tiny`: Fastest, least accurate
-- `base`: Good balance for most uses
-- `small`: Better accuracy, still reasonable speed
-- `medium`: High accuracy, slower
-- `large`: Best accuracy, but requires significant computational resources
+1. Install the Fly CLI:
+   ```
+   curl -L https://fly.io/install.sh | sh
+   ```
+
+2. Log in to Fly.io:
+   ```
+   ~/.fly/bin/flyctl auth login
+   ```
+
+3. Launch your application (from the project directory):
+   ```
+   ~/.fly/bin/flyctl launch
+   ```
+
+4. Create a volume for persistent storage:
+   ```
+   ~/.fly/bin/flyctl volumes create video_data --size 1
+   ```
+
+5. Set your OpenAI API key as a secret:
+   ```
+   ~/.fly/bin/flyctl secrets set OPENAI_API_KEY=your_api_key_here
+   ```
+
+6. Deploy your application:
+   ```
+   ~/.fly/bin/flyctl deploy
+   ```
+
+Your application will be available at `https://video-captions.fly.dev` (or the URL assigned during the launch process).
 
 ## Usage
 
 1. Upload a video file through the web interface
-2. Wait for the transcription to complete (time varies based on video length and model size)
+2. Wait for the transcription to complete (typically a few seconds)
 3. View the video with generated captions in the demo player
 4. Download the generated VTT caption file if needed
 
 ## Technologies Used
 
 - Backend: Flask (Python)
-- Transcription: Self-hosted Whisper
+- Transcription: OpenAI Whisper API
 - Package Management: UV
 - Frontend: HTML, CSS, JavaScript
 - Video Player: video.js
+- Deployment: Fly.io
 
 ## License
 

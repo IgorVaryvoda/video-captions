@@ -1,7 +1,5 @@
 import os
 import tempfile
-import whisper
-import torch
 import webvtt
 import subprocess
 import json
@@ -10,9 +8,13 @@ from flask import Flask, request, jsonify, render_template, url_for, send_from_d
 from werkzeug.utils import secure_filename
 from datetime import timedelta, datetime
 from dotenv import load_dotenv
+import openai
 
 # Load environment variables
 load_dotenv()
+
+# Initialize OpenAI client
+openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -24,21 +26,15 @@ app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 
+# Make sure to bind to 0.0.0.0 when running directly (not through gunicorn)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
 # Add context processor to provide 'now' variable to all templates
 @app.context_processor
 def inject_now():
     return {'now': datetime.now()}
-
-# Load Whisper model (lazy loading to save memory)
-model = None
-
-def get_model():
-    global model
-    if model is None:
-        model_name = os.getenv('WHISPER_MODEL', 'base')
-        print(f"Loading Whisper model: {model_name}")
-        model = whisper.load_model(model_name)
-    return model
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
@@ -55,7 +51,7 @@ def create_vtt_file(segments, output_path):
     """Create VTT file from whisper segments"""
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("WEBVTT\n\n")
-        for i, segment in enumerate(segments):
+        for segment in segments:
             start_time = format_timestamp(segment['start'])
             end_time = format_timestamp(segment['end'])
             f.write(f"{start_time} --> {end_time}\n")
@@ -97,18 +93,19 @@ def extract_audio(video_path):
     if not check_audio_stream(video_path):
         raise ValueError("This video does not contain any audio streams to transcribe")
 
-    audio_path = os.path.splitext(video_path)[0] + '.wav'
+    audio_path = os.path.splitext(video_path)[0] + '.mp3'
 
     try:
-        # Use ffmpeg to extract audio to WAV format (which Whisper handles well)
+        # Use ffmpeg to extract audio to MP3 format (which OpenAI API works well with)
         command = [
             'ffmpeg',
             '-y',  # Overwrite output file if it exists
             '-i', video_path,  # Input file
             '-vn',  # No video
-            '-acodec', 'pcm_s16le',  # PCM 16-bit little-endian audio codec
-            '-ar', '16000',  # 16kHz sampling rate (which Whisper expects)
-            '-ac', '1',  # Mono audio
+            '-acodec', 'libmp3lame',  # MP3 audio codec
+            '-ar', '44100',  # 44.1kHz sampling rate
+            '-ab', '192k',  # 192kbps bitrate
+            '-ac', '2',  # Stereo audio
             audio_path  # Output file
         ]
 
@@ -129,6 +126,33 @@ def extract_audio(video_path):
             raise ValueError("This video does not contain any audio streams to transcribe")
 
         raise RuntimeError(f"Failed to extract audio: {e.stderr}")
+
+def transcribe_with_openai(audio_path):
+    """Transcribe audio file using OpenAI Whisper API"""
+    try:
+        with open(audio_path, 'rb') as audio_file:
+            response = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                response_format="verbose_json"
+            )
+
+        # Convert OpenAI response to segments format compatible with our VTT generation
+        segments = []
+        for segment in response.segments:
+            segments.append({
+                'start': segment.start,
+                'end': segment.end,
+                'text': segment.text
+            })
+
+        return {
+            'text': response.text,
+            'segments': segments
+        }
+    except Exception as e:
+        print(f"OpenAI API error: {str(e)}")
+        raise RuntimeError(f"Failed to transcribe audio with OpenAI: {str(e)}")
 
 def create_empty_vtt(video_path, output_path):
     """Create an empty VTT file for videos without audio"""
@@ -180,9 +204,8 @@ def upload_file():
             # Extract audio from video
             audio_path = extract_audio(file_path)
 
-            # Transcribe with Whisper
-            model = get_model()
-            result = model.transcribe(audio_path)
+            # Transcribe with OpenAI
+            result = transcribe_with_openai(audio_path)
 
             # Create VTT file
             create_vtt_file(result['segments'], vtt_path)
@@ -251,6 +274,3 @@ def demo():
                 })
 
     return render_template('demo.html', videos=videos)
-
-if __name__ == '__main__':
-    app.run(debug=True)

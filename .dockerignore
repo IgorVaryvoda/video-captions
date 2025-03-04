@@ -1,0 +1,17 @@
+.git
+.env
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.idea/
+.vscode/
+.DS_Store
+uploads/*
+!uploads/.gitkeep
+static/output/*
+!static/output/.gitkeep
