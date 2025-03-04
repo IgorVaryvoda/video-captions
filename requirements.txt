@@ -1,10 +1,10 @@
-flask==2.3.3
-flask-cors==4.0.0
-whisper @ git+https://github.com/openai/whisper.git
-torch==2.1.0
-numpy==1.24.3
-ffmpeg-python==0.2.0
-python-dotenv==1.0.0
-gunicorn==21.2.0
-pydub==0.25.1
-webvtt-py==0.4.6
+flask>=3.0.0
+flask-cors>=5.0.0
+openai-whisper>=20240930
+torch>=2.0.0
+numpy>=1.26.0
+ffmpeg-python>=0.2.0
+python-dotenv>=1.0.0
+gunicorn>=23.0.0
+pydub>=0.25.1
+webvtt-py>=0.5.1
