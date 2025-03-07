@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}
 
-{% block title %}Player - {{ filename }} - Video Captions App{% endblock %}
+{% block title %}Player - {{ filename }} - {% if is_audio %}Audio{% else %}Video{% endif %} Captions App{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -12,14 +12,48 @@
             </div>
             <div class="card-body">
                 <div class="player-container mb-4">
+                    {% if is_audio %}
+                    <!-- Audio player with video.js -->
+                    <div class="audio-player-wrapper">
+                        <div class="audio-player-container">
+                            <video id="video-player" class="video-js vjs-default-skin vjs-big-play-centered vjs-audio-player" controls preload="auto" width="100%" height="60">
+                                <source src="{{ media_url }}" type="audio/{{ file_extension }}">
+                                <track kind="captions" src="{{ vtt_url }}" label="English" default>
+                                <p class="vjs-no-js">
+                                    To play this audio please enable JavaScript, and consider upgrading to a
+                                    web browser that <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
+                                </p>
+                            </video>
+                        </div>
+                        <div id="lyrics-display" class="lyrics-container">
+                            <div class="lyrics-placeholder text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p>Loading lyrics...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-center">
+                        <small class="text-muted">Playing: {{ filename }} ({{ file_extension|upper }} format)</small>
+                        <div class="text-center mt-2">
+                            <small class="text-success">
+                                <i class="bi bi-info-circle"></i>
+                                Tip: Click on any lyric line to jump to that point in the audio
+                            </small>
+                        </div>
+                    </div>
+                    {% else %}
+                    <!-- Video player -->
                     <video id="video-player" class="video-js vjs-default-skin vjs-big-play-centered" controls preload="auto" width="100%" height="450">
-                        <source src="{{ video_url }}" type="video/mp4">
+                        <source src="{{ media_url }}" type="video/mp4">
                         <track kind="captions" src="{{ vtt_url }}" label="English" default>
                         <p class="vjs-no-js">
                             To view this video please enable JavaScript, and consider upgrading to a
                             web browser that <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
                         </p>
                     </video>
+                    {% endif %}
                 </div>
 
                 <div class="d-flex justify-content-between">
@@ -43,9 +77,28 @@
                         <li><strong>Up/Down</strong> - Volume up/down</li>
                     </ul>
                 </div>
+
+                {% if is_audio %}
+                <div class="card shadow mt-4">
+                    <div class="card-header bg-success text-white">
+                        <h3 class="mb-0">Full Audio Transcript</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="audio-transcript-container" class="transcript-container">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p>Loading full transcript...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
 
+        {% if not is_audio %}
         <div class="card shadow mt-4">
             <div class="card-header bg-info text-white">
                 <h3 class="mb-0">Transcript</h3>
@@ -61,6 +114,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
@@ -90,6 +144,12 @@
             }
         });
 
+        {% if is_audio %}
+        // For audio files, add specific handling
+        console.log("Audio file detected: {{ filename }} ({{ file_extension }})");
+        player.addClass('vjs-audio-player');
+        {% endif %}
+
         // Button handlers
         document.getElementById('caption-toggle').addEventListener('click', function() {
             const tracks = player.textTracks();
@@ -108,17 +168,28 @@
             }
         });
 
-        // Load and display transcript
+        // Load and display transcript/lyrics
         fetch('{{ vtt_url }}')
-            .then(response => response.text())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.text();
+            })
             .then(vttContent => {
+                {% if is_audio %}
+                const lyricsDisplay = document.getElementById('lyrics-display');
+                console.log("Parsing VTT for lyrics display");
+                {% else %}
                 const container = document.getElementById('transcript-container');
+                {% endif %}
 
                 // Parse VTT content
                 const lines = vttContent.split('\n');
                 let transcript = '';
                 let captionText = '';
                 let startTime = '';
+                let lyricItems = [];
 
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i].trim();
@@ -138,7 +209,20 @@
                     if (line && !line.includes('-->') && startTime) {
                         captionText = line;
 
-                        // Add to transcript
+                        // Parse time for sorting
+                        const timeParts = startTime.split(':');
+                        const seconds = timeParts.length > 2
+                            ? parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2].replace(',', '.'))
+                            : parseInt(timeParts[0]) * 60 + parseFloat(timeParts[1].replace(',', '.'));
+
+                        // For audio/lyrics view
+                        lyricItems.push({
+                            text: captionText,
+                            time: startTime,
+                            seconds: seconds
+                        });
+
+                        // For transcript view
                         transcript += `<div class="transcript-line" data-time="${startTime}">
                             <span class="transcript-time">${startTime}</span>
                             <span class="transcript-text">${captionText}</span>
@@ -148,6 +232,138 @@
                     }
                 }
 
+                {% if is_audio %}
+                // Build Spotify-like lyrics display
+                if (lyricItems.length === 0) {
+                    lyricsDisplay.innerHTML = '<div class="alert alert-warning m-3">No lyrics found in the VTT file. The file may be empty or in an incorrect format.</div>';
+                    return;
+                }
+
+                console.log(`Found ${lyricItems.length} lyrics items`);
+
+                let lyricsHtml = '<div class="lyrics-scrollable">';
+
+                // Sort lyrics by time
+                lyricItems.sort((a, b) => a.seconds - b.seconds);
+
+                // Create the lyrics display
+                lyricItems.forEach((item, index) => {
+                    lyricsHtml += `<div class="lyric-line" data-time="${item.time}" data-seconds="${item.seconds}">
+                        ${item.text}
+                    </div>`;
+                });
+
+                lyricsHtml += '</div>';
+                lyricsDisplay.innerHTML = lyricsHtml;
+
+                // Also populate the full transcript container if it exists
+                const audioTranscriptContainer = document.getElementById('audio-transcript-container');
+                if (audioTranscriptContainer) {
+                    let fullTranscriptHtml = '';
+
+                    // Create a full transcript with timestamps and text
+                    lyricItems.forEach((item) => {
+                        fullTranscriptHtml += `<div class="transcript-line" data-time="${item.time}" data-seconds="${item.seconds}">
+                            <span class="transcript-time">${item.time}</span>
+                            <span class="transcript-text">${item.text}</span>
+                        </div>`;
+                    });
+
+                    audioTranscriptContainer.innerHTML = fullTranscriptHtml;
+
+                    // Add click handler to transcript lines to seek
+                    const transcriptLines = audioTranscriptContainer.querySelectorAll('.transcript-line');
+                    transcriptLines.forEach(line => {
+                        line.addEventListener('click', function() {
+                            const seconds = parseFloat(this.getAttribute('data-seconds'));
+                            player.currentTime(seconds);
+                            player.play();
+                        });
+                    });
+                }
+
+                // Set up active lyric highlighting
+                const lyricLines = document.querySelectorAll('.lyric-line');
+                let activeLineIndex = -1;
+
+                // Initial positioning of lyrics
+                const positionLyrics = () => {
+                    const lyricsContainer = document.querySelector('.lyrics-scrollable');
+                    if (!lyricsContainer) return;
+
+                    // Add extra padding at the top of the first lyric for better initial view
+                    const firstLyric = lyricLines[0];
+                    if (firstLyric) {
+                        firstLyric.style.marginTop = '40px';
+                    }
+
+                    // Add extra padding at the bottom of the lyrics container
+                    const lastLyric = lyricLines[lyricLines.length - 1];
+                    if (lastLyric) {
+                        lastLyric.style.marginBottom = '100px'; // Increased bottom margin
+                    }
+                };
+
+                // Run positioning once all elements are loaded
+                positionLyrics();
+
+                // Make all lyrics lines more visible before playing
+                lyricLines.forEach(line => {
+                    line.classList.add('ready');
+                });
+
+                player.on('timeupdate', function() {
+                    const currentTime = player.currentTime();
+
+                    // Find the current active lyric
+                    let newActiveIndex = -1;
+                    for (let i = lyricItems.length - 1; i >= 0; i--) {
+                        if (lyricItems[i].seconds <= currentTime) {
+                            newActiveIndex = i;
+                            break;
+                        }
+                    }
+
+                    // Update active line if changed
+                    if (newActiveIndex !== activeLineIndex && newActiveIndex >= 0) {
+                        // Remove active class from all lines
+                        lyricLines.forEach(line => line.classList.remove('active'));
+
+                        // Add active class to current line
+                        lyricLines[newActiveIndex].classList.add('active');
+
+                        // Scroll to make active line visible
+                        const lyricsContainer = document.querySelector('.lyrics-scrollable');
+                        const activeElement = lyricLines[newActiveIndex];
+
+                        // Only scroll if container and element exist
+                        if (lyricsContainer && activeElement) {
+                            // Better positioning - put the active line higher up (1/3 from the top instead of centered)
+                            const containerHeight = lyricsContainer.clientHeight;
+                            const elementOffset = activeElement.offsetTop;
+                            const elementHeight = activeElement.clientHeight;
+                            const scrollPosition = elementOffset - (containerHeight / 3);
+
+                            lyricsContainer.scrollTo({
+                                top: scrollPosition,
+                                behavior: 'smooth'
+                            });
+                        }
+
+                        activeLineIndex = newActiveIndex;
+                    }
+                });
+
+                // Make lyrics clickable to seek
+                lyricLines.forEach(line => {
+                    line.addEventListener('click', function() {
+                        const seconds = parseFloat(this.getAttribute('data-seconds'));
+                        player.currentTime(seconds);
+                        player.play();
+                    });
+                });
+                {% else %}
+                // Set up transcript for video
                 container.innerHTML = transcript;
 
                 // Add click handler to transcript lines
@@ -156,19 +372,28 @@
                     line.addEventListener('click', function() {
                         const timeStr = this.getAttribute('data-time');
                         const timeParts = timeStr.split(':');
-                        const hours = parseInt(timeParts[0]);
-                        const minutes = parseInt(timeParts[1]);
-                        const seconds = parseFloat(timeParts[2].replace(',', '.'));
+                        const hours = timeParts.length > 2 ? parseInt(timeParts[0]) : 0;
+                        const minutes = timeParts.length > 2 ? parseInt(timeParts[1]) : parseInt(timeParts[0]);
+                        const seconds = timeParts.length > 2
+                            ? parseFloat(timeParts[2].replace(',', '.'))
+                            : parseFloat(timeParts[1].replace(',', '.'));
 
                         const totalSeconds = hours * 3600 + minutes * 60 + seconds;
                         player.currentTime(totalSeconds);
                         player.play();
                     });
                 });
+                {% endif %}
             })
             .catch(error => {
+                console.error("Error loading VTT file:", error);
+                {% if is_audio %}
+                document.getElementById('lyrics-display').innerHTML =
+                    `<div class="alert alert-danger">Error loading lyrics: ${error.message}</div>`;
+                {% else %}
                 document.getElementById('transcript-container').innerHTML =
                     `<div class="alert alert-danger">Error loading transcript: ${error.message}</div>`;
+                {% endif %}
             });
     });
 </script>
@@ -177,30 +402,263 @@
 {% block head %}
 <style>
     .transcript-container {
-        max-height: 300px;
+        max-height: 400px; /* Increased height for full transcript */
         overflow-y: auto;
+        border-radius: 4px;
     }
 
     .transcript-line {
-        padding: 8px;
+        padding: 8px 12px;
         border-bottom: 1px solid #eee;
         cursor: pointer;
+        transition: background-color 0.2s ease;
+        display: flex;
+        align-items: flex-start;
     }
 
     .transcript-line:hover {
-        background-color: #f8f9fa;
+        background-color: #f5f5f5;
+    }
+
+    .transcript-line:active {
+        background-color: #e9e9e9;
     }
 
     .transcript-time {
-        color: #6c757d;
+        color: #007bff;
         font-size: 0.85rem;
-        margin-right: 10px;
+        margin-right: 15px;
+        min-width: 80px;
         display: inline-block;
-        width: 80px;
+        font-family: monospace;
+        background-color: #f8f9fa;
+        padding: 2px 5px;
+        border-radius: 3px;
+        text-align: center;
     }
 
     .transcript-text {
         font-size: 1rem;
+        flex: 1;
+        line-height: 1.5;
+    }
+
+    /* Zebra striping for transcript rows */
+    .transcript-line:nth-child(odd) {
+        background-color: #fcfcfc;
+    }
+
+    .transcript-line:nth-child(odd):hover {
+        background-color: #f5f5f5;
+    }
+
+    /* Custom scrollbar for transcript */
+    .transcript-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .transcript-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+
+    .transcript-container::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+    }
+
+    .transcript-container::-webkit-scrollbar-thumb:hover {
+        background: #007bff;
+    }
+
+    /* Reorganized player structure */
+    .audio-player-wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 600px;
+        background: linear-gradient(to bottom, #212121, #121212);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        margin-bottom: 20px;
+        position: relative; /* Position relative for absolute positioning of control bar */
+    }
+
+    .player-container.mb-4 {
+        margin-bottom: 0 !important;
+    }
+
+    .audio-player-container {
+        padding: 0;
+        background: transparent;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        z-index: 10;
+    }
+
+    .vjs-audio-player {
+        background-color: transparent !important;
+        box-shadow: none;
+        height: 40px !important;
+        max-height: 40px;
+    }
+
+    .vjs-audio-player .vjs-big-play-button {
+        background-color: #1DB954 !important;
+        border-radius: 50%;
+        font-size: 1.5rem;
+        height: 60px;
+        width: 60px;
+        line-height: 60px;
+        top: 50%;
+        left: 50%;
+        margin: -30px 0 0 -30px;
+        border: none;
+        z-index: 15;
+    }
+
+    .vjs-audio-player .vjs-control-bar {
+        background-color: rgba(24, 24, 24, 0.8);
+        border-radius: 0;
+        z-index: 10;
+        position: absolute;
+        bottom: 0;
+        height: 40px;
+        opacity: 1 !important;
+        display: flex !important;
+        visibility: visible !important;
+        backdrop-filter: blur(5px);
+    }
+
+    .vjs-audio-player .vjs-play-control {
+        color: #1DB954;
+    }
+
+    .lyrics-container {
+        flex: 1;
+        overflow: hidden;
+        background-color: #121212;
+        color: #b3b3b3;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: center;
+        padding: 0;
+        margin-top: 0;
+        height: calc(100% - 40px); /* Full height minus control bar */
+    }
+
+    .lyrics-scrollable {
+        max-height: 100%;
+        height: 100%;
+        overflow-y: auto;
+        width: 100%;
+        padding: 10px 20px 60px 20px;
+        text-align: center;
+        margin-bottom: 0;
+        position: relative;
+        z-index: 1;
+        padding-bottom: 80px; /* Extra padding at bottom for controls */
+    }
+
+    .lyrics-scrollable::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;
+        background: linear-gradient(to bottom, rgba(18, 18, 18, 0), rgba(18, 18, 18, 1));
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .lyric-line {
+        font-size: 18px;
+        line-height: 1.8;
+        margin: 20px 0;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        padding: 6px 10px;
+        border-radius: 6px;
+        color: #9e9e9e;
+        opacity: 0.7;
+        position: relative;
+        margin-left: 20px;
+    }
+
+    .lyric-line.ready {
+        opacity: 0.9;
+        color: #dddddd;
+    }
+
+    .lyric-line:hover {
+        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.15);
+        opacity: 1;
+    }
+
+    .lyric-line.active {
+        color: #1DB954;
+        font-size: 26px; /* Even larger */
+        font-weight: bold;
+        background-color: rgba(29, 185, 84, 0.15); /* Slightly more visible background */
+        text-shadow: 0 0 15px rgba(29, 185, 84, 0.5); /* Enhanced glow effect */
+        transform: scale(1.08); /* Slightly larger */
+        padding: 10px 15px; /* More padding */
+        margin: 25px 0; /* More vertical space around active lyric */
+        opacity: 1;
+        position: relative;
+        z-index: 5;
+        border-left: 4px solid #1DB954; /* Left border for emphasis */
+        letter-spacing: 0.5px; /* Slightly spread out letters */
+    }
+
+    .lyric-line.active::before {
+        content: '▶'; /* Changed to triangle icon */
+        position: absolute;
+        left: -20px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #1DB954;
+        font-size: 18px;
+    }
+
+    /* Custom scrollbar for lyrics */
+    .lyrics-scrollable::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .lyrics-scrollable::-webkit-scrollbar-track {
+        background: #121212;
+    }
+
+    .lyrics-scrollable::-webkit-scrollbar-thumb {
+        background: #535353;
+        border-radius: 3px;
+    }
+
+    .lyrics-scrollable::-webkit-scrollbar-thumb:hover {
+        background: #1DB954;
+    }
+
+    /* Hide video element but keep controls for audio */
+    .vjs-audio-player .vjs-tech {
+        visibility: hidden;
+    }
+
+    /* Spotify-style play button for audio */
+    .vjs-audio-player .vjs-play-control {
+        font-size: 1.2em;
+    }
+
+    /* Better visibility for controls */
+    .vjs-audio-player .vjs-control-bar {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 </style>
 {% endblock %}

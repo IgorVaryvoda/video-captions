@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}
 
-{% block title %}Demo - Video Captions App{% endblock %}
+{% block title %}Demo - Media Captions App{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -10,22 +10,28 @@
                 <h2 class="mb-0">Demo Gallery</h2>
             </div>
             <div class="card-body">
-                <p class="lead mb-4">Browse all transcribed videos with their auto-generated captions.</p>
+                <p class="lead mb-4">Browse all transcribed videos and audio files with their auto-generated captions.</p>
 
-                {% if videos %}
+                {% if media_files %}
                     <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
-                        {% for video in videos %}
+                        {% for media in media_files %}
                             <div class="col">
                                 <div class="card h-100 shadow-sm">
                                     <div class="card-body">
-                                        <h5 class="card-title text-truncate">{{ video.filename }}</h5>
+                                        <h5 class="card-title text-truncate">{{ media.filename }}</h5>
                                         <p class="card-text text-muted">
-                                            <small>Video with auto-generated captions</small>
+                                            <small>
+                                                {% if media.is_audio %}
+                                                    <i class="bi bi-music-note-beamed"></i> Audio with lyrics
+                                                {% else %}
+                                                    <i class="bi bi-film"></i> Video with captions
+                                                {% endif %}
+                                            </small>
                                         </p>
                                     </div>
                                     <div class="card-footer bg-transparent border-top-0">
-                                        <a href="{{ video.url }}" class="btn btn-primary w-100">
-                                            <i class="bi bi-play-fill"></i> Play Video
+                                        <a href="{{ media.url }}" class="btn btn-primary w-100">
+                                            <i class="bi bi-play-fill"></i> Play {{ 'Audio' if media.is_audio else 'Video' }}
                                         </a>
                                     </div>
                                 </div>
@@ -34,11 +40,11 @@
                     </div>
                 {% else %}
                     <div class="alert alert-info">
-                        <h4 class="alert-heading">No videos found!</h4>
-                        <p>No transcribed videos are available in the gallery. Upload a video on the home page to get started.</p>
+                        <h4 class="alert-heading">No media files found!</h4>
+                        <p>No transcribed videos or audio files are available in the gallery. Upload a file on the home page to get started.</p>
                         <hr>
                         <div class="d-grid gap-2 col-md-6 mx-auto">
-                            <a href="/" class="btn btn-primary">Upload a Video</a>
+                            <a href="/" class="btn btn-primary">Upload Media</a>
                         </div>
                     </div>
                 {% endif %}
@@ -50,7 +56,7 @@
                 <h3 class="mb-0">About This Demo</h3>
             </div>
             <div class="card-body">
-                <p>This demo showcases videos that have been transcribed using the self-hosted Whisper AI model. Here's what makes this demo special:</p>
+                <p>This demo showcases videos and audio files that have been transcribed using the OpenAI Whisper API. Here's what makes this demo special:</p>
 
                 <div class="row">
                     <div class="col-md-6">
@@ -60,15 +66,16 @@
                             <li>Support for multiple languages</li>
                             <li>Proper punctuation and capitalization</li>
                             <li>Timestamps for each spoken segment</li>
-                            <li>Speaker diarization (identifying who's speaking)</li>
+                            <li>Works with both videos and audio files</li>
                         </ul>
                     </div>
                     <div class="col-md-6">
                         <h5>Player Features</h5>
                         <ul>
-                            <li>Synchronized captions with the video</li>
+                            <li>Synchronized captions with video and audio</li>
                             <li>Interactive transcript with clickable segments</li>
-                            <li>Toggle captions on/off</li>
+                            <li>Spotify-style lyrics display for audio files</li>
+                            <li>Toggle captions/lyrics on/off</li>
                             <li>Adjustable playback speed</li>
                             <li>Downloadable VTT caption files</li>
                         </ul>

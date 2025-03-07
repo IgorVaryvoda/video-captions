@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'static/output'
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload size
-app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
+app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'ogg', 'flac', 'm4a'}
 
 # Ensure upload and output directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -57,16 +57,33 @@ def create_vtt_file(segments, output_path):
             f.write(f"{start_time} --> {end_time}\n")
             f.write(f"{segment['text'].strip()}\n\n")
 
-def check_audio_stream(video_path):
-    """Check if video file contains audio streams"""
+def get_media_type(file_path):
+    """
+    Check if file is audio or video and if it contains audio streams
+    Returns:
+    - 'audio': If file is an audio file
+    - 'video_with_audio': If file is a video with audio streams
+    - 'video_without_audio': If file is a video without audio streams
+    """
     try:
+        # Get file extension
+        file_ext = os.path.splitext(file_path)[1].lower()[1:]
+
+        # Audio file formats
+        audio_formats = {'mp3', 'wav', 'ogg', 'flac', 'm4a'}
+
+        # If it's an audio file format, return 'audio'
+        if file_ext in audio_formats:
+            return 'audio'
+
+        # For video files, check if they have audio streams
         command = [
             'ffprobe',
             '-v', 'error',
             '-select_streams', 'a',
             '-show_entries', 'stream=codec_type',
             '-of', 'json',
-            video_path
+            file_path
         ]
 
         result = subprocess.run(
@@ -80,17 +97,19 @@ def check_audio_stream(video_path):
         info = json.loads(result.stdout)
 
         # Check if there are any audio streams
-        return len(info.get('streams', [])) > 0
+        has_audio = len(info.get('streams', [])) > 0
+
+        return 'video_with_audio' if has_audio else 'video_without_audio'
     except subprocess.CalledProcessError as e:
         print(f"FFprobe error: {e.stderr}")
-        return False
+        return 'video_without_audio'  # Default to no audio on error
     except json.JSONDecodeError:
-        return False
+        return 'video_without_audio'  # Default to no audio on error
 
 def extract_audio(video_path):
     """Extract audio from video file using ffmpeg"""
     # Check if video has audio streams
-    if not check_audio_stream(video_path):
+    if not get_media_type(video_path) == 'video_with_audio':
         raise ValueError("This video does not contain any audio streams to transcribe")
 
     audio_path = os.path.splitext(video_path)[0] + '.mp3'
@@ -146,13 +165,10 @@ def transcribe_with_openai(audio_path):
                 'text': segment.text
             })
 
-        return {
-            'text': response.text,
-            'segments': segments
-        }
+        return segments
+
     except Exception as e:
-        print(f"OpenAI API error: {str(e)}")
-        raise RuntimeError(f"Failed to transcribe audio with OpenAI: {str(e)}")
+        raise RuntimeError(f"Failed to transcribe audio: {str(e)}")
 
 def create_empty_vtt(video_path, output_path):
     """Create an empty VTT file for videos without audio"""
@@ -168,7 +184,7 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'video' not in request.files:
-        return jsonify({'error': 'No video file provided'}), 400
+        return jsonify({'error': 'No media file provided'}), 400
 
     file = request.files['video']
 
@@ -178,99 +194,115 @@ def upload_file():
     if not allowed_file(file.filename):
         return jsonify({'error': f'File type not allowed. Allowed types: {", ".join(app.config["ALLOWED_EXTENSIONS"])}'}), 400
 
-    # Save uploaded file
     filename = secure_filename(file.filename)
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
-
-    # Get base filename without extension
-    base_filename = os.path.splitext(filename)[0]
+    output_filename = filename  # Original file will be copied to output
+    output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
     try:
-        # Check if video has audio
-        has_audio = check_audio_stream(file_path)
+        file.save(file_path)
 
-        # Save processed video to output directory
-        output_video_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
-        vtt_filename = f"{base_filename}.vtt"
-        vtt_path = os.path.join(app.config['OUTPUT_FOLDER'], vtt_filename)
+        # Get media type (audio, video with audio, or video without audio)
+        media_type = get_media_type(file_path)
 
-        # If the processed video doesn't exist in the output folder, copy it there
-        if not os.path.exists(output_video_path):
+        if media_type == 'audio':
+            # For audio files, copy directly to output (no extraction needed)
             import shutil
-            shutil.copy2(file_path, output_video_path)
-
-        if has_audio:
-            # Extract audio from video
+            shutil.copy2(file_path, output_path)
+            audio_path = output_path
+        elif media_type == 'video_with_audio':
+            # For videos with audio, extract the audio for transcription
             audio_path = extract_audio(file_path)
-
-            # Transcribe with OpenAI
-            result = transcribe_with_openai(audio_path)
-
-            # Create VTT file
-            create_vtt_file(result['segments'], vtt_path)
         else:
-            # Create an empty VTT file with a message
-            create_empty_vtt(file_path, vtt_path)
+            # For videos without audio, create an empty VTT file and copy video
+            import shutil
+            shutil.copy2(file_path, output_path)
+            vtt_output = os.path.join(app.config['OUTPUT_FOLDER'], os.path.splitext(filename)[0] + '.vtt')
+            create_empty_vtt(file_path, vtt_output)
+
             return jsonify({
-                'success': True,
-                'warning': 'No audio detected in this video. Created an empty caption file.',
-                'video_url': url_for('static', filename=f'output/{filename}'),
-                'vtt_url': url_for('static', filename=f'output/{vtt_filename}'),
-                'filename': filename
+                'filename': output_filename,
+                'vtt_url': url_for('static', filename=f'output/{os.path.splitext(filename)[0]}.vtt'),
+                'warning': 'The uploaded media does not contain any audio to transcribe. An empty caption file has been created.'
             })
 
+        # Transcribe audio with Whisper
+        segments = transcribe_with_openai(audio_path)
+
+        # Generate VTT file
+        vtt_output = os.path.join(app.config['OUTPUT_FOLDER'], os.path.splitext(filename)[0] + '.vtt')
+        create_vtt_file(segments, vtt_output)
+
+        # Return success response
         return jsonify({
-            'success': True,
-            'video_url': url_for('static', filename=f'output/{filename}'),
-            'vtt_url': url_for('static', filename=f'output/{vtt_filename}'),
-            'filename': filename
+            'filename': output_filename,
+            'vtt_url': url_for('static', filename=f'output/{os.path.splitext(filename)[0]}.vtt')
         })
 
     except ValueError as e:
-        # User-friendly error for no audio
+        # If no audio stream is found or other validation error
+        os.remove(file_path)  # Clean up the uploaded file
         return jsonify({
             'error': str(e),
-            'suggestion': 'Please upload a video that contains audio to transcribe.',
-            'video_url': url_for('static', filename=f'output/{filename}'),
-            'filename': filename
+            'suggestion': 'Please ensure your file has an audio track that can be transcribed.'
         }), 400
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # For any other errors
+        if os.path.exists(file_path):
+            os.remove(file_path)  # Clean up if possible
+        return jsonify({
+            'error': f'Error processing file: {str(e)}'
+        }), 500
 
 @app.route('/player/<filename>')
 def player(filename):
     base_filename = os.path.splitext(filename)[0]
+    file_extension = os.path.splitext(filename)[1].lower()[1:]  # Get extension without dot
     vtt_filename = f"{base_filename}.vtt"
 
-    video_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+    media_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
     vtt_path = os.path.join(app.config['OUTPUT_FOLDER'], vtt_filename)
 
-    if not os.path.exists(video_path) or not os.path.exists(vtt_path):
-        return "Video or captions not found", 404
+    if not os.path.exists(media_path) or not os.path.exists(vtt_path):
+        return "Media or captions not found", 404
 
-    video_url = url_for('static', filename=f'output/{filename}')
+    # Check if this is an audio file
+    is_audio = file_extension in {'mp3', 'wav', 'ogg', 'flac', 'm4a'}
+
+    media_url = url_for('static', filename=f'output/{filename}')
     vtt_url = url_for('static', filename=f'output/{vtt_filename}')
 
     return render_template('player.html',
-                          video_url=video_url,
+                          media_url=media_url,
                           vtt_url=vtt_url,
-                          filename=filename)
+                          filename=filename,
+                          is_audio=is_audio,
+                          file_extension=file_extension)
 
 @app.route('/demo')
 def demo():
-    # List all processed videos
-    videos = []
+    # List all processed media files (videos and audio)
+    media_files = []
     for filename in os.listdir(app.config['OUTPUT_FOLDER']):
         if allowed_file(filename):
             base_filename = os.path.splitext(filename)[0]
+            file_extension = os.path.splitext(filename)[1].lower()[1:]
             vtt_filename = f"{base_filename}.vtt"
             vtt_path = os.path.join(app.config['OUTPUT_FOLDER'], vtt_filename)
 
+            # Only include if .vtt file exists for this media file
             if os.path.exists(vtt_path):
-                videos.append({
+                # Determine if it's audio or video
+                is_audio = file_extension in {'mp3', 'wav', 'ogg', 'flac', 'm4a'}
+
+                media_files.append({
                     'filename': filename,
-                    'url': url_for('player', filename=filename)
+                    'url': url_for('player', filename=filename),
+                    'is_audio': is_audio
                 })
 
-    return render_template('demo.html', videos=videos)
+    # Sort alphabetically
+    media_files.sort(key=lambda x: x['filename'])
+
+    return render_template('demo.html', media_files=media_files)

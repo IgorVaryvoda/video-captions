@@ -8,8 +8,32 @@
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
 
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
     <!-- Video.js CSS -->
     <link href="https://vjs.zencdn.net/8.5.2/video-js.css" rel="stylesheet" />
+
+    <!-- Video.js Audio CSS -->
+    <style>
+        /* Basic audio player styling */
+        .vjs-audio {
+            display: block;
+            width: 100%;
+        }
+
+        .vjs-audio .vjs-tech {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        .vjs-has-started.vjs-audio .vjs-control-bar {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+    </style>
 
     <!-- Custom CSS -->
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
@@ -19,7 +43,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">Video Captions App</a>
+            <a class="navbar-brand" href="/">Video & Audio Captions App</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -42,7 +66,7 @@
 
     <footer class="bg-light py-3 mt-5">
         <div class="container text-center">
-            <p class="mb-0">Video Captions App &copy; {{ now.year }}</p>
+            <p class="mb-0">Video & Audio Captions App &copy; {{ now.year }}</p>
         </div>
     </footer>
 
