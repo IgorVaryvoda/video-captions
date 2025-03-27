@@ -154,7 +154,7 @@ def transcribe_with_openai(audio_path):
                 model="whisper-1",
                 file=audio_file,
                 response_format="verbose_json",
-                timestamp_granularities=["segment"]
+                timestamp_granularities=["word"]
             )
             print(response)
 
