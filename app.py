@@ -154,17 +154,44 @@ def transcribe_with_openai(audio_path):
                 model="whisper-1",
                 file=audio_file,
                 response_format="verbose_json",
-                timestamp_granularities=["word"]
+                timestamp_granularities=["segment"]
             )
+            print(response)
 
-        # Convert OpenAI response to segments format compatible with our VTT generation
+        # Create segments from words
         segments = []
-        for segment in response.segments:
-            segments.append({
-                'start': segment.start,
-                'end': segment.end,
-                'text': segment.text
-            })
+        current_segment = {
+            'start': response.words[0].start if response.words else 0,
+            'end': 0,
+            'text': ''
+        }
+
+        for word in response.words:
+            # Check for natural sentence breaks (period, question mark, exclamation mark)
+            is_sentence_end = any(word.word.strip().endswith(p) for p in ['.', '?', '!'])
+
+            # Check for conjunctions that often indicate sentence breaks in German
+            is_conjunction = word.word.lower() in ['und', 'aber', 'oder', 'sondern', 'denn', 'weil', 'dass']
+
+            # If there's a gap of more than 1 second, it's a sentence end, or it's a conjunction
+            # and we already have some text, start a new segment
+            if (word.start - current_segment['end'] > 1.0 or
+                is_sentence_end or
+                (is_conjunction and current_segment['text'])):
+                if current_segment['text']:
+                    segments.append(current_segment)
+                current_segment = {
+                    'start': word.start,
+                    'end': word.end,
+                    'text': word.word
+                }
+            else:
+                current_segment['end'] = word.end
+                current_segment['text'] += ' ' + word.word
+
+        # Add the last segment
+        if current_segment['text']:
+            segments.append(current_segment)
 
         return segments
 
@@ -197,23 +224,26 @@ def upload_file():
 
     filename = secure_filename(file.filename)
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    output_filename = filename  # Original file will be copied to output
-    output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+    output_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
 
     try:
+        # Save the uploaded file
         file.save(file_path)
 
         # Get media type (audio, video with audio, or video without audio)
         media_type = get_media_type(file_path)
 
         if media_type == 'audio':
-            # For audio files, copy directly to output (no extraction needed)
+            # For audio files, copy directly to output
             import shutil
             shutil.copy2(file_path, output_path)
             audio_path = output_path
         elif media_type == 'video_with_audio':
             # For videos with audio, extract the audio for transcription
             audio_path = extract_audio(file_path)
+            # Copy the original video to output folder
+            import shutil
+            shutil.copy2(file_path, output_path)
         else:
             # For videos without audio, create an empty VTT file and copy video
             import shutil
@@ -222,7 +252,7 @@ def upload_file():
             create_empty_vtt(file_path, vtt_output)
 
             return jsonify({
-                'filename': output_filename,
+                'filename': filename,
                 'vtt_url': url_for('static', filename=f'output/{os.path.splitext(filename)[0]}.vtt'),
                 'warning': 'The uploaded media does not contain any audio to transcribe. An empty caption file has been created.'
             })
@@ -234,15 +264,21 @@ def upload_file():
         vtt_output = os.path.join(app.config['OUTPUT_FOLDER'], os.path.splitext(filename)[0] + '.vtt')
         create_vtt_file(segments, vtt_output)
 
+        # Clean up temporary files
+        if audio_path != output_path:  # Only delete if it's a temporary extracted audio file
+            os.remove(audio_path)
+        os.remove(file_path)  # Clean up the uploaded file
+
         # Return success response
         return jsonify({
-            'filename': output_filename,
+            'filename': filename,
             'vtt_url': url_for('static', filename=f'output/{os.path.splitext(filename)[0]}.vtt')
         })
 
     except ValueError as e:
         # If no audio stream is found or other validation error
-        os.remove(file_path)  # Clean up the uploaded file
+        if os.path.exists(file_path):
+            os.remove(file_path)  # Clean up the uploaded file
         return jsonify({
             'error': str(e),
             'suggestion': 'Please ensure your file has an audio track that can be transcribed.'
