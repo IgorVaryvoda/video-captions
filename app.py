@@ -153,7 +153,8 @@ def transcribe_with_openai(audio_path):
             response = openai_client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
-                response_format="verbose_json"
+                response_format="verbose_json",
+                timestamp_granularities=["word"]
             )
 
         # Convert OpenAI response to segments format compatible with our VTT generation
